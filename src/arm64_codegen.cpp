@@ -223,8 +223,11 @@ std::string codegen_arm64(const IRFunc& f, const RegAlloc& ra,
             }
             case IROp::EXTS:
                 pre += reload(ra, ir.a, false);
-                line = std::string("  ") + (ir.imm == 8 ? "sxtb " : ir.imm == 16 ? "sxth " : "sxtw ") +
-                       w(ir.dst) + ", " + w(ir.a);
+                if (ir.imm == 32)   // EXTSW: sign-extend 32->64, needs x-form dest
+                    line = "  sxtw " + x(ir.dst) + ", " + w(ir.a);
+                else
+                    line = std::string("  ") + (ir.imm == 8 ? "sxtb " : "sxth ") +
+                           w(ir.dst) + ", " + w(ir.a);
                 break;
             case IROp::CLZ:
                 pre += reload(ra, ir.a, false);
