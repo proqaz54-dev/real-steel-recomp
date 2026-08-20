@@ -237,7 +237,7 @@ int main(int argc, char** argv) {
             }
             std::string ir_text = rsr::ir_to_string(f);
             std::string ra_text = rsr::regalloc_to_string(f, ra);
-            std::string asm_text = rsr::codegen_arm64(f, ra, in_range_check, &sections);
+            std::string asm_text = rsr::codegen_arm64(f, ra, in_range_check, &sections, img.entry);
             std::fprintf(ir_out, "%s%s%s\n", ir_text.c_str(), ra_text.c_str(), asm_text.c_str());
         }
         std::fclose(ir_out);

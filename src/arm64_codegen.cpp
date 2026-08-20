@@ -119,9 +119,11 @@ const char* cond_of(int bi, bool iff) {
 } // namespace
 
 std::string codegen_arm64(const IRFunc& f, const RegAlloc& ra,
-                          bool (*in_range)(uint64_t, void*), void* ctx) {
+                          bool (*in_range)(uint64_t, void*), void* ctx,
+                          uint64_t entry_addr) {
     std::string out;
-    out += "fn_" + std::string(label(f.addr)) + ":\n"; // fn_L_<addr>
+    if (entry_addr && f.addr == entry_addr) out += ".globl entry\nentry:\n";
+    out += std::string(label(f.addr)) + ":\n";            // global function label (matches branch/call refs)
     out += std::string("/* IR function @ 0x") + label(f.addr) + " */\n";
 
     for (const auto& b : f.blocks) {
