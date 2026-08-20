@@ -41,11 +41,14 @@ void common(Insn& i, const Fields& f, uint32_t word) {
 Op xo31(uint32_t xo) {
     switch (xo) {
     case 0:    return Op::CMPW;
+    case 4:    return Op::TRAP;   // tw
     case 8:    return Op::SUBFC;
     case 10:   return Op::ADDC;
     case 11:   return Op::MULHWU;
     case 19:   return Op::MFCR;
+    case 512:  return Op::MCRXR;
     case 20:   return Op::LWARX;
+    case 21:   return Op::LDX;
     case 23:   return Op::LWZX;
     case 24:   return Op::SLW;
     case 26:   return Op::CNTLZW;
@@ -53,6 +56,7 @@ Op xo31(uint32_t xo) {
     case 28:   return Op::AND;
     case 32:   return Op::CMPLW;
     case 40:   return Op::SUBF;
+    case 53:   return Op::LDUX;
     case 54:   return Op::DCBST;
     case 55:   return Op::LWZUX;
     case 58:   return Op::CNTLZD;
@@ -60,6 +64,7 @@ Op xo31(uint32_t xo) {
     case 75:   return Op::MULHW;
     case 86:   return Op::DCBF;
     case 87:   return Op::LBZX;
+    case 84:   return Op::LDARX;
     case 104:  return Op::NEG;
     case 119:  return Op::LBZUX;
     case 122:  return Op::POPCNTB;
@@ -67,11 +72,13 @@ Op xo31(uint32_t xo) {
     case 136:  return Op::SUBFE;
     case 138:  return Op::ADDE;
     case 144:  return Op::MTCRF;
+    case 149:  return Op::STDX;
     case 150:  return Op::STWCX;
     case 151:  return Op::STWX;
     case 183:  return Op::STWUX;
     case 200:  return Op::SUBFZE;
     case 202:  return Op::ADDZE;
+    case 214:  return Op::STDCX;
     case 215:  return Op::STBX;
     case 232:  return Op::SUBFME;
     case 234:  return Op::ADDME;
@@ -83,6 +90,7 @@ Op xo31(uint32_t xo) {
     case 311:  return Op::LHZUX;
     case 316:  return Op::XOR;
     case 339:  return Op::UNKNOWN; // mfspr (resolved by caller)
+    case 341:  return Op::LWA;     // lwax
     case 343:  return Op::LHAX;
     case 375:  return Op::LHAUX;
     case 407:  return Op::STHX;
@@ -105,27 +113,26 @@ Op xo31(uint32_t xo) {
     case 922:  return Op::EXTSH;
     case 954:  return Op::EXTSB;
     case 986:  return Op::EXTSW;
-    case 1016: return Op::DCBZ;
+    case 1014: return Op::DCBZ;
     default:   return Op::UNKNOWN;
     }
 }
 
 Op xo59(uint32_t xo) {
+    // Single-precision FP (primary 59), opcode numbers from Xenia
+    // ppc_opcode_table_gen.cc. Paired-single is intentionally not
+    // decoded here yet (Xenia has no PS backend either).
     switch (xo) {
-    case 12:   return Op::FRSP;
-    case 18:   return Op::PS_DIV;
-    case 20:   return Op::PS_SUB;
-    case 21:   return Op::PS_ADD;
+    case 18:   return Op::FDIV;
+    case 20:   return Op::FSUB;
+    case 21:   return Op::FADD;
+    case 22:   return Op::FSQRT;
     case 24:   return Op::FRES;
-    case 25:   return Op::PS_MUL;
-    case 26:   return Op::UNKNOWN; // ps_rsqrte
-    case 28:   return Op::PS_SUB;  // ps_msub
-    case 29:   return Op::PS_MADD;
-    case 30:   return Op::PS_SUB;  // ps_nmsub
-    case 31:   return Op::PS_ADD;  // ps_nmadd
-    case 40:   return Op::PS_NEG;
-    case 72:   return Op::PS_MR;
-    case 264:  return Op::PS_ABS;
+    case 25:   return Op::FMUL;
+    case 28:   return Op::FMSUB;
+    case 29:   return Op::FMADD;
+    case 30:   return Op::FNMSUB;
+    case 31:   return Op::FNMADD;
     default:   return Op::UNKNOWN;
     }
 }
@@ -138,6 +145,9 @@ Op xo63(uint32_t xo) {
     case 20:   return Op::FSUB;
     case 21:   return Op::FADD;
     case 22:   return Op::FSQRT;
+    case 23:   return Op::FSEL;
+    case 25:   return Op::FMUL;
+    case 26:   return Op::FRSQRTE;
     case 28:   return Op::FMSUB;
     case 29:   return Op::FMADD;
     case 30:   return Op::FNMSUB;
@@ -145,7 +155,7 @@ Op xo63(uint32_t xo) {
     case 32:   return Op::FCMPU;   // fcmpo
     case 40:   return Op::FNEG;
     case 72:   return Op::FMR;
-    case 136:  return Op::FNEG;    // fnabs
+    case 136:  return Op::FNABS;
     case 264:  return Op::FABS;
     case 583:  return Op::MFFS;
     case 711:  return Op::MTFSF;
@@ -164,7 +174,7 @@ Insn decode(uint32_t word, int64_t pc) {
     if (word == 0x60000000) { i.op = Op::NOP; return i; }
 
     switch (f.op) {
-    case 4:  i.op = Op::TRAP; break;
+    case 3:  i.op = Op::TRAP; break; // twi
     case 7:  i.op = Op::MULLI; i.d = f.d16; break;
     case 8:  i.op = Op::SUBFIC; i.d = f.d16; break;
     case 10: i.op = Op::CMPLI; i.uimm = static_cast<uint16_t>(f.d16); i.crfd = f.crf_d; break;
@@ -280,10 +290,18 @@ Insn decode(uint32_t word, int64_t pc) {
 
     case 31: {
         i.op = xo31(f.xo);
-        if (i.op == Op::UNKNOWN && f.xo == 23) i.op = Op::UNKNOWN;
         if (f.xo == 339) i.op = (f.spr == 8) ? Op::MFLR : (f.spr == 9 ? Op::MFCTR : Op::MFSPR);
         if (f.xo == 467) i.op = (f.spr == 8) ? Op::MTLR : (f.spr == 9 ? Op::MTCTR : Op::MTSPR);
         if (f.xo == 144) i.op = Op::MTCRF;
+        // For these X-forms the source register (rS) lives in the RA field.
+        switch (i.op) {
+        case Op::SLW: case Op::SLD: case Op::SRW: case Op::SRD:
+        case Op::SRAW: case Op::SRAWI: case Op::CNTLZW: case Op::CNTLZD:
+        case Op::EXTSB: case Op::EXTSH: case Op::EXTSW: case Op::POPCNTB:
+        case Op::NEG:
+            i.rs = f.ra; break;
+        default: break;
+        }
         if (i.op == Op::SRAWI) i.sh = f.rb;
         if (i.op == Op::MFSPR || i.op == Op::MTSPR) i.spr = f.spr;
         if (i.op == Op::MFCR) i.rd = f.rt;
@@ -458,6 +476,11 @@ std::string to_string(const Insn& i) {
     case Op::EIEIO: n = "eieio"; break;
     case Op::CMPB: n = "cmpb"; break;
     case Op::LD: n = "ld"; break;
+    case Op::LDX: n = "ldx"; break;
+    case Op::LDUX: n = "ldux"; break;
+    case Op::LDARX: n = "ldarx"; break;
+    case Op::STDX: n = "stdx"; break;
+    case Op::STDCX: n = "stdcx"; break;
     case Op::LDU: n = "ldu"; break;
     case Op::LWA: n = "lwa"; break;
     case Op::STD: n = "std"; break;
@@ -480,6 +503,9 @@ std::string to_string(const Insn& i) {
     case Op::FABS: n = "fabs"; break;
     case Op::FNEG: n = "fneg"; break;
     case Op::FMR: n = "fmr"; break;
+    case Op::FNABS: n = "fnabs"; break;
+    case Op::FSEL: n = "fsel"; break;
+    case Op::FRSQRTE: n = "frsqrte"; break;
     case Op::FCMPU: n = "fcmpu"; break;
     case Op::FMADD: n = "fmadd"; break;
     case Op::FMSUB: n = "fmsub"; break;
@@ -510,9 +536,10 @@ std::string to_string(const Insn& i) {
     case Op::MFCR: n = "mfcr"; break;
     case Op::MTCRF: n = "mtcrf"; break;
     case Op::MCRF: n = "mcrf"; break;
+    case Op::MCRXR: n = "mcrxr"; break;
     case Op::SYNC: n = "sync"; break;
     case Op::ISYNC: n = "isync"; break;
-    case Op::TRAP: n = "trap"; break;
+    case Op::TRAP: n = "tw"; break; // tw/twi (primary 3 handled at 176)
     case Op::SC: n = "sc"; break;
     default: break;
     }

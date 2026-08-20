@@ -25,12 +25,13 @@
 
 - [x] Завантажувач XEX2 (big-endian), заголовки + секції + entry:
       `src/xex.{h,cpp}`
-- [x] Декодер PPC32: інтеджери/АЛУ з carry, всі load/store (D/DS/X-форми,
-      byte-reverse, multi/string), гілки (b/bl/bc,bdnz/bdz/bclr/bctr за
-      повною BO-таблицею), FPU (fadd..fnmsub, fcmpu, lfs/lfd/stfs/stfd),
-      paired-single (Xenon), RLWINM/RLWIMI/RLWNM (ror+mask/bfi), mflr/mtlr/ctr,
-      cmp, CR-special, dcbz/dcbst/dcbf/eieio, tw/sc:
-      `src/ppc32_decode.{h,cpp}`
+- [x] Декодер PPC32 (XO-номери звірені з хenia ppc_opcode_table_gen.cc,
+      134 golden-тести, без заглушок): інтеджери/АЛУ з carry, всі load/store
+      (D/DS/X-форми + 64-бітні ldx/stdx), гілки (b/bl/bc,bdnz/bdz/bclr/bctr за
+      повною BO-таблицею), FPU (fadd..fnmsub, fcmpu, frsp/fres/frsqrte/fsel,
+      lfs/lfd/stfs/stfd), single-precision (primary 59), RLWINM/RLWIMI/RLWNM
+      (ror+mask/bfi), mflr/mtlr/ctr, cmp, CR-special, dc[bz|bst|bf]/eieio,
+      tw/twi/sc, mcrxr: `src/ppc32_decode.{h,cpp}`
 - [x] Емітер ARM64 (текст) з проміжним мапінгом: `src/arm64_emit.{h,cpp}`
 - [x] Функційні мітки по `bl`-таргетах + статистика:
       `src/main.cpp`
