@@ -45,37 +45,49 @@ Op xo31(uint32_t xo) {
     case 10:   return Op::ADDC;
     case 11:   return Op::MULHWU;
     case 19:   return Op::MFCR;
-    case 23:   return Op::UNKNOWN; // lwzx (added when X-form loads are done)
+    case 20:   return Op::LWARX;
+    case 23:   return Op::LWZX;
     case 24:   return Op::SLW;
     case 26:   return Op::CNTLZW;
     case 27:   return Op::SLD;
     case 28:   return Op::AND;
     case 32:   return Op::CMPLW;
     case 40:   return Op::SUBF;
-    case 54:   return Op::UNKNOWN; // dcbst (treated as sync-ish, see xo31_sync)
+    case 54:   return Op::DCBST;
+    case 55:   return Op::LWZUX;
     case 58:   return Op::CNTLZD;
     case 60:   return Op::ANDC;
     case 75:   return Op::MULHW;
-    case 86:   return Op::UNKNOWN; // dcbf
+    case 86:   return Op::DCBF;
+    case 87:   return Op::LBZX;
     case 104:  return Op::NEG;
+    case 119:  return Op::LBZUX;
     case 122:  return Op::POPCNTB;
     case 124:  return Op::NOR;
     case 136:  return Op::SUBFE;
     case 138:  return Op::ADDE;
     case 144:  return Op::MTCRF;
+    case 150:  return Op::STWCX;
+    case 151:  return Op::STWX;
+    case 183:  return Op::STWUX;
     case 200:  return Op::SUBFZE;
     case 202:  return Op::ADDZE;
+    case 215:  return Op::STBX;
     case 232:  return Op::SUBFME;
     case 234:  return Op::ADDME;
     case 235:  return Op::MULLW;
+    case 247:  return Op::STBUX;
     case 266:  return Op::ADD;
-    case 279:  return Op::UNKNOWN; // lhzx
+    case 279:  return Op::LHZX;
     case 284:  return Op::EQV;
+    case 311:  return Op::LHZUX;
     case 316:  return Op::XOR;
     case 339:  return Op::UNKNOWN; // mfspr (resolved by caller)
-    case 343:  return Op::UNKNOWN; // lhax
-    case 407:  return Op::UNKNOWN; // sthx
+    case 343:  return Op::LHAX;
+    case 375:  return Op::LHAUX;
+    case 407:  return Op::STHX;
     case 412:  return Op::ORC;
+    case 439:  return Op::STHUX;
     case 444:  return Op::OR;
     case 459:  return Op::DIVWU;
     case 467:  return Op::UNKNOWN; // mtspr (resolved by caller)
@@ -88,10 +100,12 @@ Op xo31(uint32_t xo) {
     case 790:  return Op::LHBRX;
     case 792:  return Op::SRAW;
     case 824:  return Op::SRAWI;
+    case 854:  return Op::EIEIO;
     case 918:  return Op::STWBRX;
     case 922:  return Op::EXTSH;
     case 954:  return Op::EXTSB;
     case 986:  return Op::EXTSW;
+    case 1016: return Op::DCBZ;
     default:   return Op::UNKNOWN;
     }
 }
@@ -199,10 +213,13 @@ Insn decode(uint32_t word, int64_t pc) {
         break;
     }
     case 20: i.op = Op::RLWIMI;
+        i.rd = f.rt; i.rs = f.ra; // rA=RT, rS=RA
         i.sh = f.rb; i.mb = (word >> 6) & 0x1F; i.me = (word >> 1) & 0x1F; break;
     case 21: i.op = Op::RLWINM;
+        i.rd = f.rt; i.rs = f.ra; // rA=RT, rS=RA
         i.sh = f.rb; i.mb = (word >> 6) & 0x1F; i.me = (word >> 1) & 0x1F; break;
     case 23: i.op = Op::RLWNM;
+        i.rd = f.rt; i.rs = f.ra; // rA=RT, rS=RA
         i.sh = f.rb; i.mb = (word >> 6) & 0x1F; i.me = (word >> 1) & 0x1F; break;
     case 24: i.op = Op::ORI;   i.uimm = word & 0xFFFF; break;
     case 25: i.op = Op::ORIS;  i.uimm = word & 0xFFFF; break;
@@ -294,27 +311,6 @@ Insn decode(uint32_t word, int64_t pc) {
 
     i.oe = (word >> 10) & 1;
 
-    // X-form load/store (opcode 31) that weren't in xo31 table:
-    if (f.op == 31 && i.op == Op::UNKNOWN) {
-        switch (f.xo) {
-        case 23:  i.op = Op::UNKNOWN; break; // lwzx -> TODO (revisit later)
-        case 55:  i.op = Op::UNKNOWN; break;
-        case 87:  i.op = Op::UNKNOWN; break;
-        case 119: i.op = Op::UNKNOWN; break;
-        case 279: i.op = Op::UNKNOWN; break;
-        case 311: i.op = Op::UNKNOWN; break;
-        case 343: i.op = Op::UNKNOWN; break;
-        case 375: i.op = Op::UNKNOWN; break;
-        case 151: i.op = Op::UNKNOWN; break;
-        case 183: i.op = Op::UNKNOWN; break;
-        case 215: i.op = Op::UNKNOWN; break;
-        case 247: i.op = Op::UNKNOWN; break;
-        case 407: i.op = Op::UNKNOWN; break;
-        case 439: i.op = Op::UNKNOWN; break;
-        default: break;
-        }
-    }
-
     return i;
 }
 
@@ -323,16 +319,40 @@ int64_t call_target(const Insn& i) {
     return i.aa ? (i.d & 0xFFFFFFFF) : (i.pc + i.d);
 }
 
-const char* cond_name(const Insn& i) {
-    // bi -> CR bit: (bi>>2) = field, bi&3: 0=LT 1=GT 2=EQ 3=SO
-    bool branch_if_true = (i.bo & 0x10) != 0; // BO bit4 set => cr true
-    bool negate = !branch_if_true;
-    switch (i.bi & 3) {
-    case 0: return negate ? "ge" : "lt";
-    case 1: return negate ? "le" : "gt";
-    case 2: return negate ? "ne" : "eq";
-    default: return negate ? "vc" : "vs";
+uint32_t rot_mask(int mb, int me) {
+    uint32_t mask = 0;
+    for (int b = mb;; b = (b + 1) & 31) {
+        mask |= 1u << b;
+        if (b == me) break;
     }
+    return mask;
+}
+
+const char* cond_name(const Insn& i) {
+    // BO[0] (0x10) clear => CR bit test. BO[1] (0x08) selects true/false.
+    if (i.bo & 0x10) return ""; // no CR test (CTR-only or unconditional)
+    bool branch_if_true = (i.bo & 0x08) != 0;
+    const char* base;
+    switch (i.bi & 3) {
+    case 0: base = "lt"; break;
+    case 1: base = "gt"; break;
+    case 2: base = "eq"; break;
+    default: base = "vs"; break;
+    }
+    if (branch_if_true) return base;
+    switch (base[0]) {
+    case 'l': return "ge";
+    case 'g': return "le";
+    case 'e': return "ne";
+    default: return "vc";
+    }
+}
+
+bool ctr_test(const Insn& i, bool& branch_on_zero) {
+    if (i.bo & 0x04) return false; // BO[2] set -> no CTR test
+    // BO[3] (0x02): 1 -> branch on CTR==0 (bdz), 0 -> CTR!=0 (bdnz)
+    branch_on_zero = (i.bo & 0x02) != 0;
+    return true;
 }
 
 std::string to_string(const Insn& i) {
@@ -416,6 +436,27 @@ std::string to_string(const Insn& i) {
     case Op::LWBRX: n = "lwbrx"; break;
     case Op::LHBRX: n = "lhbrx"; break;
     case Op::STWBRX: n = "stwbrx"; break;
+    case Op::LWZX: n = "lwzx"; break;
+    case Op::LWZUX: n = "lwzux"; break;
+    case Op::LBZX: n = "lbzx"; break;
+    case Op::LBZUX: n = "lbzux"; break;
+    case Op::LHZX: n = "lhzx"; break;
+    case Op::LHZUX: n = "lhzux"; break;
+    case Op::LHAX: n = "lhax"; break;
+    case Op::LHAUX: n = "lhaux"; break;
+    case Op::STWX: n = "stwx"; break;
+    case Op::STWUX: n = "stwux"; break;
+    case Op::STBX: n = "stbx"; break;
+    case Op::STBUX: n = "stbux"; break;
+    case Op::STHX: n = "sthx"; break;
+    case Op::STHUX: n = "sthux"; break;
+    case Op::LWARX: n = "lwarx"; break;
+    case Op::STWCX: n = "stwcx."; break;
+    case Op::DCBZ: n = "dcbz"; break;
+    case Op::DCBST: n = "dcbst"; break;
+    case Op::DCBF: n = "dcbf"; break;
+    case Op::EIEIO: n = "eieio"; break;
+    case Op::CMPB: n = "cmpb"; break;
     case Op::LD: n = "ld"; break;
     case Op::LDU: n = "ldu"; break;
     case Op::LWA: n = "lwa"; break;

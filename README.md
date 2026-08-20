@@ -25,16 +25,17 @@
 
 - [x] Завантажувач XEX2 (big-endian), заголовки + секції + entry:
       `src/xex.{h,cpp}`
-- [x] Декодер PPC32: інтеджери/АЛУ з carry, load/store (D/DS/X/FP),
-      гілки (b/bl/bc/bclr/bctr), FPU (fadd..fnmsub, fcmpu, lfs/lfd/stfs/stfd),
-      paired-single (Xenon), mflr/mtlr/ctr, cmp, CR-special:
+- [x] Декодер PPC32: інтеджери/АЛУ з carry, всі load/store (D/DS/X-форми,
+      byte-reverse, multi/string), гілки (b/bl/bc,bdnz/bdz/bclr/bctr за
+      повною BO-таблицею), FPU (fadd..fnmsub, fcmpu, lfs/lfd/stfs/stfd),
+      paired-single (Xenon), RLWINM/RLWIMI/RLWNM (ror+mask/bfi), mflr/mtlr/ctr,
+      cmp, CR-special, dcbz/dcbst/dcbf/eieio, tw/sc:
       `src/ppc32_decode.{h,cpp}`
 - [x] Емітер ARM64 (текст) з проміжним мапінгом: `src/arm64_emit.{h,cpp}`
 - [x] Функційні мітки по `bl`-таргетах + статистика:
       `src/main.cpp`
 - [x] CLI: `real-steel-recomp default.xex -o out.s`
-- [ ] Точні carry/CR-семантики (перевірити проти Xenia)
-- [ ] Повне покриття (RLWINM precise, lmw/stmw, x-form l*wx, rlwinm-коло)
+- [ ] CR-емulation точна (флаги в shadow-регістр; зараз best-effort from cmp)
 - [ ] Регістровий алокатор + ABI (Xenon ABI: r1=SP, r3..r10 аргументи)
 - [ ] Заглушки XAM/ядра (syscall), імпорти
 - [ ] Графіка Xenos (D3D-подібний) -> Vulkan/GLES

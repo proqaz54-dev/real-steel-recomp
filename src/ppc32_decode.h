@@ -21,7 +21,9 @@ enum class Op {
     LWZ, LWZU, STW, STWU, LBZ, LBZU, STB, STBU,
     LHA, LHAU, LHZ, LHZU, STH, STHU,
     LMW, STMW, LWBRX, LHBRX, STWBRX, STHBRX,
-    LD, LDU, LWA, STD, STDU,
+    LWZX, LWZUX, LBZX, LBZUX, LHZX, LHZUX, LHAX, LHAUX,
+    STWX, STWUX, STBX, STBUX, STHX, STHUX, LWARX, STWCX,
+    LD, LDU, LWA, STD, STDU, DCBZ, DCBST, DCBF,
     // floating point
     LFS, LFSU, LFD, LFDU, STFS, STFSU, STFD, STFDU,
     FADD, FSUB, FMUL, FDIV, FSQRT, FRES, FRSP, FABS, FNEG, FMR,
@@ -63,7 +65,15 @@ std::string to_string(const Insn& i);
 // Otherwise returns the target PC of a direct call (bl) target.
 int64_t call_target(const Insn& i);
 
-// Human-readable condition/BO summary (best effort).
+// Human-readable condition/BO summary (best effort). Returns "" when the
+// branch is not primarily a CR-bit test (e.g. CTR-only bdnz/bdz).
 const char* cond_name(const Insn& i);
+
+// Empty if the instruction has no CTR test (bc/bclr/bcctr with BO[2]=0).
+// Otherwise returns true branch-takes-on-CTR==0 (bdz family) vs !=0.
+bool ctr_test(const Insn& i, bool& branch_on_zero);
+
+// Rotate-left mask for rlwinm/rlwimi/rlwnm (mb..me circular, 32-bit).
+uint32_t rot_mask(int mb, int me);
 
 } // namespace rsr

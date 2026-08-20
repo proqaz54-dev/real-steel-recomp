@@ -89,9 +89,39 @@ std::string emit_arm64(const Insn& i, const std::string& label) {
     case Op::SRD: return line("lsr " + xr(i.rd) + ", " + xr(i.rs) + ", " + xr(i.rb));
     case Op::SRAW: return line("asr " + wr(i.rd) + ", " + wr(i.rs) + ", " + wr(i.rb));
     case Op::SRAWI: return line("asr " + wr(i.rd) + ", " + wr(i.rs) + ", #" + std::to_string(i.sh));
-    case Op::RLWINM: return line("// TODO rlwinm");
-    case Op::RLWIMI: return line("// TODO rlwimi");
-    case Op::RLWNM: return line("// TODO rlwnm");
+    case Op::RLWINM: {
+        // rA = rotl(rS, sh) & mask(mb..me)
+        uint32_t m = rot_mask(i.mb, i.me);
+        std::string r = "ror " + wr(i.rd) + ", " + wr(i.rs) + ", #" +
+                        std::to_string((32 - i.sh) & 31) + "\n";
+        out = "  " + r + "  and " + wr(i.rd) + ", " + wr(i.rd) + ", #0x" +
+              [&]() {
+                  char h[16];
+                  std::snprintf(h, sizeof(h), "%08x", m);
+                  return std::string(h);
+              }();
+        return out + "\n  // " + src;
+    }
+    case Op::RLWIMI: {
+        // rA = (rA & ~mask) | (rotl(rS,sh) & mask)  ->  ror + bfi
+        int width = (i.me - i.mb + 32) % 32 + 1;
+        out = "  ror w16, " + wr(i.rs) + ", #" + std::to_string((32 - i.sh) & 31) + "\n";
+        out += "  bfi " + wr(i.rd) + ", w16, #" + std::to_string(i.mb) + ", #" +
+               std::to_string(width);
+        return out + "\n  // " + src + " (w16 scratch)";
+    }
+    case Op::RLWNM: {
+        // variable rotate: use w16 as scratch
+        out = "  sub w16, xzr, " + wr(i.rb) + "\n";
+        out += "  ror " + wr(i.rd) + ", " + wr(i.rs) + ", w16\n";
+        out += "  and " + wr(i.rd) + ", " + wr(i.rd) + ", #0x" +
+               [&]() {
+                   char h[16];
+                   std::snprintf(h, sizeof(h), "%08x", rot_mask(i.mb, i.me));
+                   return std::string(h);
+               }();
+        return out + "\n  // " + src + " (w16 scratch)";
+    }
     case Op::CNTLZW: return line("clz " + wr(i.rd) + ", " + wr(i.rs));
     case Op::CNTLZD: return line("clz " + xr(i.rd) + ", " + xr(i.rs));
     case Op::POPCNTB: return line("// TODO popcntb");
@@ -103,9 +133,30 @@ std::string emit_arm64(const Insn& i, const std::string& label) {
     case Op::BL:
         if (label.empty()) return line(i.op == Op::BL ? "bl" : "b");
         return line(std::string(i.op == Op::BL ? "bl " : "b ") + label);
-    case Op::BC:
-        if (label.empty()) return line(std::string("b.") + cond_name(i));
-        return line(std::string("b.") + cond_name(i) + " " + label);
+    case Op::BC: {
+        bool branch_on_zero = false;
+        bool has_ctr = ctr_test(i, branch_on_zero);
+        std::string cn = cond_name(i);
+        std::string target = label.empty() ? std::string("(unresolved target)") : label;
+        if (has_ctr) {
+            if (branch_on_zero) {
+                // bdz: ctr==0 -> branch w/o decrement; else decrement, branch on zero.
+                out = "  cbz x20, " + target + "\n";
+                out += "  subs x20, x20, #1\n";
+                out += "  b.eq " + target;
+            } else {
+                // bdnz: never decrement when already 0 (avoids wrap-around).
+                out = "  cbz x20, .Lc" + std::to_string(i.pc) + "_s\n";
+                out += "  subs x20, x20, #1\n";
+                out += "  b.ne " + target;
+                out += "\n.Lc" + std::to_string(i.pc) + "_s:\n";
+            }
+            return out + "  // " + src;
+        }
+        if (cn.empty()) return line("b " + target + " // bc branch always");
+        if (label.empty()) return line("b." + cn + " // assumes CR flags live from last cmp");
+        return line("b." + cn + " " + label + " // assumes CR flags live from last cmp");
+    }
     case Op::BCLR:
         if (i.bo == 20 && i.bi == 0) return line("ret");
         return line("// TODO bclr(bclrl)");
@@ -139,8 +190,43 @@ std::string emit_arm64(const Insn& i, const std::string& label) {
     case Op::LWA: return line("ldrsw " + xr(i.rt) + ", [" + xr(i.ra) + ", #" + std::to_string(i.d) + "]");
     case Op::STD: return line("str " + xr(i.rs) + ", [" + xr(i.ra) + ", #" + std::to_string(i.d) + "]");
     case Op::STDU: return line("str " + xr(i.rs) + ", [" + xr(i.ra) + ", #" + std::to_string(i.d) + "]!");
-    case Op::LMW: return line("// TODO lmw");
-    case Op::STMW: return line("// TODO stmw");
+    case Op::LMW: {
+        // lmw rT, d(rA): load rT..r31 (inclusive) sequentially
+        std::string body;
+        for (int r = i.rt; r <= 31; r++) {
+            body += "  ldr " + wr(r) + ", [" + xr(i.ra) + ", #" +
+                    std::to_string(i.d + (r - i.rt) * 4) + "]\n";
+        }
+        return body + "  // " + src;
+    }
+    case Op::STMW: {
+        std::string body;
+        for (int r = i.rs; r <= 31; r++) {
+            body += "  str " + wr(r) + ", [" + xr(i.ra) + ", #" +
+                    std::to_string(i.d + (r - i.rs) * 4) + "]\n";
+        }
+        return body + "  // " + src;
+    }
+    case Op::LWZX: return line("ldr " + wr(i.rt) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]");
+    case Op::LWZUX: return line("ldr " + wr(i.rt) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]!");
+    case Op::LBZX: return line("ldrb " + wr(i.rt) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]");
+    case Op::LBZUX: return line("ldrb " + wr(i.rt) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]!");
+    case Op::LHZX: return line("ldrh " + wr(i.rt) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]");
+    case Op::LHZUX: return line("ldrh " + wr(i.rt) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]!");
+    case Op::LHAX: return line("ldrsh " + wr(i.rt) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]");
+    case Op::LHAUX: return line("ldrsh " + wr(i.rt) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]!");
+    case Op::STWX: return line("str " + wr(i.rs) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]");
+    case Op::STWUX: return line("str " + wr(i.rs) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]!");
+    case Op::STBX: return line("strb " + wr(i.rs) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]");
+    case Op::STBUX: return line("strb " + wr(i.rs) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]!");
+    case Op::STHX: return line("strh " + wr(i.rs) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]");
+    case Op::STHUX: return line("strh " + wr(i.rs) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]!");
+    case Op::LWARX: return line("ldaxr w16, [" + xr(i.ra) + ", " + xr(i.rb) + "] // TODO: reserve semantics (w16 scratch)");
+    case Op::STWCX: return line("stxr w16, " + wr(i.rs) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "] // TODO: CR0 set from result (w16 scratch)");
+    case Op::DCBZ: return line("bl rsr_dcbz // dcbz (cache-block zero) -> runtime helper");
+    case Op::DCBST: return line("dmb ish // dcbst");
+    case Op::DCBF: return line("dmb ish // dcbf");
+    case Op::EIEIO: return line("dmb osh // eieio");
 
     case Op::LFS: return line("ldr " + sr(i.frt) + ", [" + xr(i.ra) + ", #" + std::to_string(i.d) + "]");
     case Op::LFSU: return line("ldr " + sr(i.frt) + ", [" + xr(i.ra) + ", #" + std::to_string(i.d) + "]!");
