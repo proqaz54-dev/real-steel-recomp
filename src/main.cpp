@@ -74,13 +74,16 @@ int main(int argc, char** argv) {
                 (unsigned long long)size,
                 entry_sec->page_count, entry_sec->page_size);
 
-    // Pass 1: decode to collect branch target labels.
+    // Pass 1: decode to collect branch targets + function boundaries (bl).
     std::map<uint64_t, bool> labels;
+    std::map<uint64_t, bool> functions;
     std::vector<rsr::Insn> insns;
+    uint64_t unsupported = 0;
     for (uint64_t pc = entry_sec->vaddr; pc + 4 <= entry_sec->vaddr + size; pc += 4) {
         uint32_t w = static_cast<uint32_t>(fetch(img, *entry_sec, pc));
         rsr::Insn in = rsr::decode(w, pc);
         insns.push_back(in);
+        if (in.op == rsr::Op::UNKNOWN) unsupported++;
         if (in.op == rsr::Op::B || in.op == rsr::Op::BL) {
             uint64_t target = in.aa ? (in.d & 0xFFFFFFFF) : (pc + in.d);
             labels[target] = true;
@@ -88,7 +91,11 @@ int main(int argc, char** argv) {
             uint64_t target = pc + in.d;
             labels[target] = true;
         }
+        int64_t ct = rsr::call_target(in);
+        if (ct >= 0 && img.section_at(ct)) functions[static_cast<uint64_t>(ct)] = true;
     }
+    std::printf("decoded %zu insns, %zu unsupported, %zu function starts\n",
+                insns.size(), unsupported, functions.size());
 
     FILE* out = std::fopen(o.output.c_str(), "w");
     if (!out) {
@@ -100,6 +107,9 @@ int main(int argc, char** argv) {
     std::fprintf(out, "// Source: %s  entry=0x%llx\n", o.input.c_str(), (unsigned long long)img.entry);
     std::fprintf(out, ".text\n.align 2\n.globl entry\nentry:\n");
     for (const auto& in : insns) {
+        auto fit = functions.find(in.pc);
+        if (fit != functions.end())
+            std::fprintf(out, "L_%llx: /* fn */\n", (unsigned long long)in.pc);
         auto it = labels.find(in.pc);
         if (it != labels.end())
             std::fprintf(out, "L_%llx:\n", (unsigned long long)in.pc);

@@ -21,16 +21,20 @@
 Етапи в `docs/plan.md`. Код гри (XEX) не включено в репозиторій — тільки
 інструменти; XEX постачає користувач.
 
-## Статус (фундамент)
+## Статус
 
 - [x] Завантажувач XEX2 (big-endian), заголовки + секції + entry:
       `src/xex.{h,cpp}`
-- [x] Мінімальний декодер PPC32 (integer/load-store/branch subset):
+- [x] Декодер PPC32: інтеджери/АЛУ з carry, load/store (D/DS/X/FP),
+      гілки (b/bl/bc/bclr/bctr), FPU (fadd..fnmsub, fcmpu, lfs/lfd/stfs/stfd),
+      paired-single (Xenon), mflr/mtlr/ctr, cmp, CR-special:
       `src/ppc32_decode.{h,cpp}`
-- [x] Емітер ARM64 (текст): `src/arm64_emit.{h,cpp}`
+- [x] Емітер ARM64 (текст) з проміжним мапінгом: `src/arm64_emit.{h,cpp}`
+- [x] Функційні мітки по `bl`-таргетах + статистика:
+      `src/main.cpp`
 - [x] CLI: `real-steel-recomp default.xex -o out.s`
-- [ ] Повне покриття PPC32 (включно FPU/Xenos), XEX1
-- [ ] Аналіз контролю потоку + меж функцій (з `bl`-таргетів)
+- [ ] Точні carry/CR-семантики (перевірити проти Xenia)
+- [ ] Повне покриття (RLWINM precise, lmw/stmw, x-form l*wx, rlwinm-коло)
 - [ ] Регістровий алокатор + ABI (Xenon ABI: r1=SP, r3..r10 аргументи)
 - [ ] Заглушки XAM/ядра (syscall), імпорти
 - [ ] Графіка Xenos (D3D-подібний) -> Vulkan/GLES
