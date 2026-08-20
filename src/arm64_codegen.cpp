@@ -1,6 +1,8 @@
 #include "arm64_codegen.h"
 
 #include <cstdio>
+#include <set>
+#include <vector>
 
 namespace rsr {
 
@@ -120,7 +122,12 @@ const char* cond_of(int bi, bool iff) {
 
 std::string codegen_arm64(const IRFunc& f, const RegAlloc& ra,
                           bool (*in_range)(uint64_t, void*), void* ctx,
-                          uint64_t entry_addr) {
+                          uint64_t entry_addr, const std::set<uint64_t>* fn_addrs) {
+    auto tgt = [&](uint64_t a) {
+        return fn_addrs && fn_addrs->count(a)
+                   ? std::string(label(a))
+                   : std::string(".Lbb_") + label(a);
+    };
     std::string out;
     if (entry_addr && f.addr == entry_addr) out += ".globl entry\nentry:\n";
     out += std::string(label(f.addr)) + ":\n";            // global function label (matches branch/call refs)
@@ -253,7 +260,7 @@ std::string codegen_arm64(const IRFunc& f, const RegAlloc& ra,
                 else if (!in_range(ir.label, ctx))
                     line = "  // unresolved branch -> 0x" + std::string(label(ir.label));
                 else
-                    line = std::string("  b ") + label(ir.label);
+                    line = std::string("  b ") + tgt(ir.label);
                 break;
             case IROp::BR_COND: {
                 bool ctr = (ir.imm & 0x4000) != 0;
@@ -265,13 +272,13 @@ std::string codegen_arm64(const IRFunc& f, const RegAlloc& ra,
                     break;
                 }
                 line = std::string("  b.") + cond_of(static_cast<int>(ir.imm & 0x7F), iff) +
-                       " " + label(ir.label) + " // " +
+                       " " + tgt(ir.label) + " // " +
                        (ctr ? "ctr-based" : "flag-based (cr" + std::to_string(static_cast<int>(ir.imm & 0x7F) >> 2) + ")");
                 break;
             }
             case IROp::CALL:
                 if (in_range(ir.label, ctx))
-                    line = std::string("  bl ") + label(ir.label);
+                    line = std::string("  bl ") + tgt(ir.label);
                 else
                     line = "  // call -> 0x" + std::string(label(ir.label)) + " (import/thunk)";
                 break;

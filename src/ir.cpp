@@ -185,7 +185,8 @@ void append_mask(const Insn& i, const IRInsn& rot, std::vector<IRInsn>& out) {
 
 IRFunc build_ir(const std::vector<Insn>& insns,
                 uint64_t start, uint64_t end,
-                std::vector<uint64_t>& callees) {
+                std::vector<uint64_t>& callees,
+                const std::set<uint64_t>& xtargets) {
     IRFunc f;
     f.addr = start;
 
@@ -211,6 +212,10 @@ IRFunc build_ir(const std::vector<Insn>& insns,
             if (in.op == Op::BL && t >= start && t < end) callees.push_back(t);
         }
     }
+    for (uint64_t t : xtargets)
+        if (t >= start && t < end) targets.insert(t);
+    for (uint64_t t : xtargets)
+        if (t >= start && t < end) targets.insert(t);
     for (auto it = lo; it != hi; ++it)
         if (terminal(*it) && static_cast<uint64_t>(it->pc) + 4 < end)
             targets.insert(it->pc + 4);

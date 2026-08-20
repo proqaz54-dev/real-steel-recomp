@@ -1,4 +1,5 @@
 #pragma once
+#include <set>
 
 #include "ir.h"
 #include "regalloc.h"
@@ -12,6 +13,7 @@ namespace rsr {
 // other targets get a comment. spills use [x19,#-8k] + w16/x16 scratch.
 std::string codegen_arm64(const IRFunc& f, const RegAlloc& ra,
                           bool (*in_range)(uint64_t, void*), void* ctx,
-                          uint64_t entry_addr = 0);
+                          uint64_t entry_addr = 0,
+                          const std::set<uint64_t>* fn_addrs = nullptr);
 
 } // namespace rsr

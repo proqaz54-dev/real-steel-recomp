@@ -1,4 +1,6 @@
 #pragma once
+#include <set>
+#include <vector>
 
 #include "ppc32_decode.h"
 
@@ -47,7 +49,8 @@ struct IRFunc {
 // Direct bl targets (in-range) are appended to `callees`.
 IRFunc build_ir(const std::vector<Insn>& insns,
                 uint64_t start, uint64_t end,
-                std::vector<uint64_t>& callees);
+                std::vector<uint64_t>& callees,
+                const std::set<uint64_t>& xtargets = std::set<uint64_t>());
 
 std::string ir_to_string(const IRFunc& f);
 

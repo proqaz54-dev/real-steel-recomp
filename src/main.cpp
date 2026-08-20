@@ -1,3 +1,4 @@
+#include <set>
 #include "ppc32_decode.h"
 #include "arm64_emit.h"
 #include "arm64_codegen.h"
@@ -124,6 +125,7 @@ int main(int argc, char** argv) {
     // Pass 1: decode all code sections to collect branch targets + functions.
     std::map<uint64_t, bool> labels;
     std::map<uint64_t, bool> functions;
+    std::set<uint64_t> xtargets;
     std::vector<rsr::Insn> insns;
     uint64_t unsupported = 0;
     for (const auto& sec : img.sections) {
@@ -144,6 +146,9 @@ int main(int argc, char** argv) {
             int64_t ct = rsr::call_target(in);
             if (ct >= 0 && img.section_at(static_cast<uint64_t>(ct)))
                 functions[static_cast<uint64_t>(ct)] = true;
+            if ((in.op == rsr::Op::B || in.op == rsr::Op::BC) &&
+                img.section_at(static_cast<uint64_t>(in.pc + in.d)))
+                xtargets.insert(static_cast<uint64_t>(in.pc + in.d));
         }
         (void)ops_here;
     }
@@ -198,6 +203,7 @@ int main(int argc, char** argv) {
     std::vector<uint64_t> starts;
     for (uint64_t a : fns)
         if (img.section_at(a)) starts.push_back(a);
+    std::set<uint64_t> starts_set(starts.begin(), starts.end());
 
     auto in_range_check = [](uint64_t addr, void* ctx) -> bool {
         auto* sections = static_cast<std::vector<std::pair<uint64_t, uint64_t>>*>(ctx);
@@ -227,7 +233,7 @@ int main(int argc, char** argv) {
                 }
             }
             std::vector<uint64_t> callees;
-            rsr::IRFunc f = rsr::build_ir(insns, starts[i], end, callees);
+            rsr::IRFunc f = rsr::build_ir(insns, starts[i], end, callees, xtargets);
             rsr::RegAlloc ra = rsr::linear_scan(f, 16);
             for (int s : ra.slot) if (s >= 0) spilled++;
             for (int p : ra.phys) if (p >= 0) total_vregs++;
@@ -237,7 +243,7 @@ int main(int argc, char** argv) {
             }
             std::string ir_text = rsr::ir_to_string(f);
             std::string ra_text = rsr::regalloc_to_string(f, ra);
-            std::string asm_text = rsr::codegen_arm64(f, ra, in_range_check, &sections, img.entry);
+            std::string asm_text = rsr::codegen_arm64(f, ra, in_range_check, &sections, img.entry, &starts_set);
             std::fprintf(ir_out, "%s%s%s\n", ir_text.c_str(), ra_text.c_str(), asm_text.c_str());
         }
         std::fclose(ir_out);
