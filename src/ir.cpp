@@ -189,31 +189,44 @@ IRFunc build_ir(const std::vector<Insn>& insns,
     IRFunc f;
     f.addr = start;
 
+    // insns is sorted by pc: restrict all scans to [start, end) via binary search.
+    auto lo = std::lower_bound(insns.begin(), insns.end(), start,
+                               [](const Insn& a, uint64_t pc) { return static_cast<uint64_t>(a.pc) < pc; });
+    auto hi = insns.end();
+    if (lo != insns.end()) {
+        hi = std::lower_bound(lo, insns.end(), end,
+                              [](const Insn& a, uint64_t pc) { return static_cast<uint64_t>(a.pc) < pc; });
+    }
+
     std::set<uint64_t> targets;
     targets.insert(start);
-    for (const auto& in : insns) {
-        if (static_cast<uint64_t>(in.pc) < start || static_cast<uint64_t>(in.pc) >= end) continue;
+    for (auto it = lo; it != hi; ++it) {
+        const Insn& in = *it;
         if (in.op == Op::B || in.op == Op::BC || in.op == Op::BL) {
             uint64_t t = target_of(in);
             if (t >= start && t < end) targets.insert(t);
             if (in.op == Op::BL && t >= start && t < end) callees.push_back(t);
         }
     }
-    for (const auto& in : insns)
-        if (static_cast<uint64_t>(in.pc) >= start && static_cast<uint64_t>(in.pc) < end && terminal(in) && static_cast<uint64_t>(in.pc) + 4 < end)
-            targets.insert(in.pc + 4);
+    for (auto it = lo; it != hi; ++it)
+        if (terminal(*it) && static_cast<uint64_t>(it->pc) + 4 < end)
+            targets.insert(it->pc + 4);
 
     std::vector<uint64_t> starts;
-    for (const auto& in : insns)
-        if (static_cast<uint64_t>(in.pc) >= start && static_cast<uint64_t>(in.pc) < end && targets.count(static_cast<uint64_t>(in.pc)))
-            starts.push_back(static_cast<uint64_t>(in.pc));
+    for (auto it = lo; it != hi; ++it)
+        if (targets.count(static_cast<uint64_t>(it->pc)))
+            starts.push_back(static_cast<uint64_t>(it->pc));
 
     for (size_t i = 0; i < starts.size(); i++) {
         IRBlock b;
         b.start = starts[i];
         b.end = (i + 1 < starts.size()) ? starts[i + 1] : end;
-        for (const auto& in : insns) {
-            if (static_cast<uint64_t>(in.pc) < b.start || static_cast<uint64_t>(in.pc) >= b.end) continue;
+        auto blo = std::lower_bound(lo, hi, b.start,
+                                    [](const Insn& a, uint64_t pc) { return static_cast<uint64_t>(a.pc) < pc; });
+        auto bhi = std::lower_bound(blo, hi, b.end,
+                                    [](const Insn& a, uint64_t pc) { return static_cast<uint64_t>(a.pc) < pc; });
+        for (auto it = blo; it != bhi; ++it) {
+            const Insn& in = *it;
             if (in.op == Op::BC || in.op == Op::BCLR || in.op == Op::BCTR) {
                 lower_branch(in, b.insns);
             } else {

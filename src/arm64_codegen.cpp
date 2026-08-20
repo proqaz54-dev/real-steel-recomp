@@ -17,7 +17,7 @@ std::string wr(const RegAlloc& ra, int v) {
     if (v == 64) return "w20"; // CTR
     if (v == 65) return "w30"; // LR
     if (v == 31) return "w19";
-    if (v < static_cast<int>(ra.phys.size()) && ra.phys[v] >= 0)
+    if (v >= 0 && v < static_cast<int>(ra.phys.size()) && ra.phys[v] >= 0)
         return "w" + std::to_string(ra.phys[v]);
     return "w16"; // spilled: caller emits reload
 }
@@ -25,7 +25,7 @@ std::string xr(const RegAlloc& ra, int v) {
     if (v == 64) return "x20"; // CTR
     if (v == 65) return "x30"; // LR
     if (v == 31) return "x19";
-    if (v < static_cast<int>(ra.phys.size()) && ra.phys[v] >= 0)
+    if (v >= 0 && v < static_cast<int>(ra.phys.size()) && ra.phys[v] >= 0)
         return "x" + std::to_string(ra.phys[v]);
     return "x16";
 }
@@ -34,7 +34,7 @@ std::string xr(const RegAlloc& ra, int v) {
 std::string reload(const RegAlloc& ra, int v, bool wide) {
     if (v < 0) return "";
     if (v == 31 || v == 64 || v == 65) return "";
-    if (v < static_cast<int>(ra.phys.size()) && ra.phys[v] >= 0) return "";
+    if (v >= 0 && v < static_cast<int>(ra.phys.size()) && ra.phys[v] >= 0) return "";
     if (v >= static_cast<int>(ra.slot.size()) || ra.slot[v] < 0) return "";
     return (wide ? "  ldr x16, [x19, #-" : "  ldr w16, [x19, #-") +
            std::to_string(ra.slot[v] * 8) + "]\n";

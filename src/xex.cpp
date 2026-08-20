@@ -106,4 +106,44 @@ XexImage load_xex(const std::string& path) {
     return img;
 }
 
+XexImage load_flat(const std::string& path, uint64_t base, uint64_t entry,
+                   const std::vector<std::pair<uint64_t, uint64_t>>& code_ranges) {
+    XexImage img;
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) {
+        img.error = "cannot open " + path;
+        return img;
+    }
+    std::fseek(f, 0, SEEK_END);
+    long sz = std::ftell(f);
+    std::rewind(f);
+    if (sz <= 0) {
+        img.error = "empty image";
+        std::fclose(f);
+        return img;
+    }
+    img.data.resize(static_cast<size_t>(sz));
+    if (std::fread(img.data.data(), 1, img.data.size(), f) != img.data.size()) {
+        img.error = "read failed";
+        std::fclose(f);
+        return img;
+    }
+    std::fclose(f);
+
+    img.base = base;
+    img.entry = entry;
+    img.image_size = static_cast<uint64_t>(sz);
+    for (const auto& r : code_ranges) {
+        XexSection s;
+        s.page_size = 1;
+        s.page_count = static_cast<uint32_t>(r.second - r.first);
+        s.data_offset = r.first;
+        s.vaddr = base + r.first;
+        img.sections.push_back(s);
+    }
+    img.ok = !img.sections.empty();
+    if (!img.ok) img.error = "no code ranges";
+    return img;
+}
+
 } // namespace rsr

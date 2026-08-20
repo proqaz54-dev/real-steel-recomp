@@ -30,6 +30,11 @@ struct XexImage {
 // yet parsed.
 XexImage load_xex(const std::string& path);
 
+// Loads a pre-decrypted flat image: raw bytes mapped 1:1 at `base`.
+// `code_ranges` are [begin, end) RVA pairs within the image that hold code.
+XexImage load_flat(const std::string& path, uint64_t base, uint64_t entry,
+                   const std::vector<std::pair<uint64_t, uint64_t>>& code_ranges);
+
 inline uint16_t be16(const uint8_t* p) { return static_cast<uint16_t>(p[0]) << 8 | p[1]; }
 inline uint32_t be32(const uint8_t* p) { return (static_cast<uint32_t>(be16(p)) << 16) | be16(p + 2); }
 inline uint64_t be64(const uint8_t* p) { return (static_cast<uint64_t>(be32(p)) << 32) | be32(p + 4); }
