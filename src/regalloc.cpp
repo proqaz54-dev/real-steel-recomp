@@ -94,7 +94,8 @@ RegAlloc linear_scan(const IRFunc& f, int headroom) {
 
     std::vector<int> pool;
     for (int r = 0; r <= 29; r++)
-        if (r != kGuestSP && r != kGuestCTR && r != kGuestLR) pool.push_back(r);
+        if (r != 16 && r != 17 && r != kGuestSP && r != kGuestCTR && r != kGuestLR)
+            pool.push_back(r);  // x16/x17 reserved as scratch
 
     int next_slot = 1;
     std::vector<Interval> active;

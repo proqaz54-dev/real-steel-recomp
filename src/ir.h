@@ -12,7 +12,7 @@ namespace rsr {
 // v32..v63 = FP fr0..fr31, v64 = CTR, v65 = LR (host x20/x30).
 enum class IROp {
     NOP,
-    MOV, MOVI, MOVZ,        // mov dst,src / mov dst,#imm / movz dst,#(imm<<16)
+    MOV, MOVI, MOVZ, MOV64, // mov dst,src / mov dst,#imm / movz dst,#(imm<<16) / mov x64
     ADD, SUB, MUL, AND, OR, XOR, NEG, NOT,
     SHL, SHR, ASR, ROR,     // register or immediate variants (b<0 => imm)
     EXTS, CLZ,

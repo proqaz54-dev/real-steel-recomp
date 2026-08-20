@@ -49,6 +49,54 @@ std::string spill_store(const RegAlloc& ra, int v, bool wide) {
            std::to_string(ra.slot[v] * 8) + "]\n";
 }
 
+// Valid AArch64 32-bit logical immediate (AND/ORR/BIC/EOR #imm encodable)?
+bool log32(uint32_t x) {
+    if (x == 0 || x == ~0u) return false;
+    for (int w : {2, 4, 8, 16, 32}) {
+        uint32_t mask = (w == 32) ? ~0u : ((1u << w) - 1);
+        bool ok = true, has_full = false, has_zero = false;
+        for (uint32_t i = 0; i < 32 && ok; i += w) {
+            uint32_t e = (x >> i) & mask;
+            if (e == mask) has_full = true;
+            else if (e == 0) has_zero = true;
+            else ok = false;
+        }
+        if (ok && has_full && has_zero) return true;
+    }
+    return false;
+}
+
+// Set x17 = imm (32-bit, sign-extended into a w-view) via movz/movk.
+std::string scratch32(uint32_t imm) {
+    std::string r = "  movz w17, #" + std::to_string(imm & 0xFFFF) + "\n";
+    imm >>= 16;
+    r += "  movk w17, #" + std::to_string(imm & 0xFFFF) + ", lsl #16\n";
+    return r;
+}
+
+// Set x17 = imm (64-bit, sign-extended).
+std::string scratch64(int64_t v) {
+    uint64_t u = static_cast<uint64_t>(v);
+    std::string r = "  movz x17, #" + std::to_string(u & 0xFFFF) + "\n";
+    u >>= 16;
+    r += "  movk x17, #" + std::to_string(u & 0xFFFF) + ", lsl #16\n";
+    u >>= 16;
+    r += "  movk x17, #" + std::to_string(u & 0xFFFF) + ", lsl #32\n";
+    u >>= 16;
+    if (u) r += "  movk x17, #" + std::to_string(u & 0xFFFF) + ", lsl #48\n";
+    return r;
+}
+
+// Pre-amble that computes addr = x(a) + imm into x17.
+std::string addr_pre64(const RegAlloc& ra, int v, int64_t imm) {
+    std::string pre = reload(ra, v, true);
+    std::string base = xr(ra, v);
+    if (imm >= -4096 && imm <= 4095)
+        return pre + "  add x17, " + base + ", #" + std::to_string(imm) + "\n";
+    return pre + scratch64(imm) + "  add x17, " + base + ", x17\n";
+}
+
+
 const char* cond_of(int bi, bool iff) {
     const char* c;
     switch (bi & 3) {
@@ -88,12 +136,26 @@ std::string codegen_arm64(const IRFunc& f, const RegAlloc& ra,
                 pre += reload(ra, ir.a, false);
                 line = "  mov " + w(ir.dst) + ", " + w(ir.a);
                 break;
-            case IROp::MOVI: line = "  mov " + w(ir.dst) + ", #" + std::to_string(ir.imm); break;
+            case IROp::MOV64:
+                pre += reload(ra, ir.a, true);
+                line = "  mov " + x(ir.dst) + ", " + x(ir.a);
+                break;
+            case IROp::MOVI:
+                if (ir.imm >= -0xFFFF && ir.imm <= 0xFFFF) {
+                    line = "  mov " + w(ir.dst) + ", #" + std::to_string(ir.imm);
+                } else {
+                    pre += scratch32(static_cast<uint32_t>(ir.imm));
+                    line = "  mov " + w(ir.dst) + ", w17";
+                }
+                break;
             case IROp::MOVZ: line = "  movz " + w(ir.dst) + ", #" + std::to_string(ir.imm & 0xFFFF) + ", lsl #16"; break;
             case IROp::ADD:
                 pre += reload(ra, ir.a, false) + reload(ra, ir.b, false);
-                if (ir.b < 0)
-                    line = "  add " + w(ir.dst) + ", " + w(ir.a) + ", #" + std::to_string(ir.imm);
+                if (ir.b < 0) {
+                    if (ir.imm >= -4096 && ir.imm <= 4095)
+                        line = "  add " + w(ir.dst) + ", " + w(ir.a) + ", #" + std::to_string(ir.imm);
+                    else { pre += scratch32(static_cast<uint32_t>(ir.imm)); line = "  add " + w(ir.dst) + ", " + w(ir.a) + ", w17"; }
+                }
                 else
                     line = "  add " + w(ir.dst) + ", " + w(ir.a) + ", " + w(ir.b);
                 break;
@@ -103,13 +165,14 @@ std::string codegen_arm64(const IRFunc& f, const RegAlloc& ra,
                     pre += reload(ra, ir.b, false);
                     line = "  sub " + w(ir.dst) + ", " + w(ir.a) + ", " + w(ir.b);
                 } else {
-                    line = "  sub " + w(ir.dst) + ", " + w(ir.a) + ", #" + std::to_string(ir.imm);
+                    if (ir.imm >= -4096 && ir.imm <= 4095)
+                        line = "  sub " + w(ir.dst) + ", " + w(ir.a) + ", #" + std::to_string(ir.imm);
+                    else { pre += scratch32(static_cast<uint32_t>(ir.imm)); line = "  sub " + w(ir.dst) + ", " + w(ir.a) + ", w17"; }
                 }
                 break;
             case IROp::MUL:
                 pre += reload(ra, ir.a, false) + reload(ra, ir.b, false);
-                if (ir.b < 0)
-                    line = "  mul " + w(ir.dst) + ", " + w(ir.a) + ", #" + std::to_string(ir.imm);
+                if (ir.b < 0) { pre += scratch32(static_cast<uint32_t>(ir.imm)); line = "  madd " + w(ir.dst) + ", " + w(ir.a) + ", w17, wzr"; }
                 else
                     line = "  mul " + w(ir.dst) + ", " + w(ir.a) + ", " + w(ir.b);
                 break;
@@ -117,8 +180,16 @@ std::string codegen_arm64(const IRFunc& f, const RegAlloc& ra,
                 pre += reload(ra, ir.a, false);
                 if (ir.b < 0) {
                     uint32_t m = static_cast<uint32_t>(ir.imm);
-                    line = "  and " + w(ir.dst) + ", " + w(ir.a) + ", #" +
-                           std::to_string(m);
+                    if (m == ~0u) {
+                        line = "  mov " + w(ir.dst) + ", " + w(ir.a);
+                    } else if (log32(m)) {
+                        char hex[24];
+                        std::snprintf(hex, sizeof(hex), "0x%x", m);
+                        line = std::string("  and ") + w(ir.dst) + ", " + w(ir.a) + ", #" + hex;
+                    } else {
+                        pre += scratch32(m);
+                        line = "  and " + w(ir.dst) + ", " + w(ir.a) + ", w17";
+                    }
                 } else {
                     pre += reload(ra, ir.b, false);
                     line = "  and " + w(ir.dst) + ", " + w(ir.a) + ", " + w(ir.b);
@@ -166,7 +237,9 @@ std::string codegen_arm64(const IRFunc& f, const RegAlloc& ra,
                 break;
             case IROp::CMPI: case IROp::CMPIU:
                 pre += reload(ra, ir.a, false);
-                line = "  cmp " + w(ir.a) + ", #" + std::to_string(ir.imm);
+                if (ir.imm >= -4096 && ir.imm <= 4095)
+                    line = "  cmp " + w(ir.a) + ", #" + std::to_string(ir.imm);
+                else { pre += scratch32(static_cast<uint32_t>(ir.imm)); line = "  cmp " + w(ir.a) + ", w17"; }
                 break;
 
             case IROp::BR:
@@ -200,36 +273,36 @@ std::string codegen_arm64(const IRFunc& f, const RegAlloc& ra,
             case IROp::RET: line = "  ret"; break;
 
             case IROp::LDR32:
-                pre += reload(ra, ir.a, true);
-                line = "  ldr " + w(ir.dst) + ", [" + x(ir.a) + ", #" + std::to_string(ir.imm) + "]";
+                pre += addr_pre64(ra, ir.a, ir.imm);
+                line = "  ldr " + w(ir.dst) + ", [x17]";
                 break;
             case IROp::STR32:
-                pre += reload(ra, ir.a, true) + reload(ra, ir.b, false);
-                line = "  str " + w(ir.b) + ", [" + x(ir.a) + ", #" + std::to_string(ir.imm) + "]";
+                pre += addr_pre64(ra, ir.a, ir.imm) + reload(ra, ir.b, false);
+                line = "  str " + w(ir.b) + ", [x17]";
                 break;
             case IROp::LDR8:
-                pre += reload(ra, ir.a, true);
-                line = "  ldrb " + w(ir.dst) + ", [" + x(ir.a) + ", #" + std::to_string(ir.imm) + "]";
+                pre += addr_pre64(ra, ir.a, ir.imm);
+                line = "  ldrb " + w(ir.dst) + ", [x17]";
                 break;
             case IROp::STR8:
-                pre += reload(ra, ir.a, true) + reload(ra, ir.b, false);
-                line = "  strb " + w(ir.b) + ", [" + x(ir.a) + ", #" + std::to_string(ir.imm) + "]";
+                pre += addr_pre64(ra, ir.a, ir.imm) + reload(ra, ir.b, false);
+                line = "  strb " + w(ir.b) + ", [x17]";
                 break;
             case IROp::LDR16:
-                pre += reload(ra, ir.a, true);
-                line = "  ldrh " + w(ir.dst) + ", [" + x(ir.a) + ", #" + std::to_string(ir.imm) + "]";
+                pre += addr_pre64(ra, ir.a, ir.imm);
+                line = "  ldrh " + w(ir.dst) + ", [x17]";
                 break;
             case IROp::STR16:
-                pre += reload(ra, ir.a, true) + reload(ra, ir.b, false);
-                line = "  strh " + w(ir.b) + ", [" + x(ir.a) + ", #" + std::to_string(ir.imm) + "]";
+                pre += addr_pre64(ra, ir.a, ir.imm) + reload(ra, ir.b, false);
+                line = "  strh " + w(ir.b) + ", [x17]";
                 break;
             case IROp::LDR64X:
-                pre += reload(ra, ir.a, true);
-                line = "  ldr " + x(ir.dst) + ", [" + x(ir.a) + ", #" + std::to_string(ir.imm) + "]";
+                pre += addr_pre64(ra, ir.a, ir.imm);
+                line = "  ldr " + x(ir.dst) + ", [x17]";
                 break;
             case IROp::STR64X:
-                pre += reload(ra, ir.a, true) + reload(ra, ir.b, true);
-                line = "  str " + x(ir.b) + ", [" + x(ir.a) + ", #" + std::to_string(ir.imm) + "]";
+                pre += addr_pre64(ra, ir.a, ir.imm) + reload(ra, ir.b, true);
+                line = "  str " + x(ir.b) + ", [x17]";
                 break;
 
             case IROp::DMB:  line = "  dmb ish"; break;
@@ -241,7 +314,7 @@ std::string codegen_arm64(const IRFunc& f, const RegAlloc& ra,
                 break;
             }
 
-            bool wide_res = ir.op == IROp::LDR64X;
+            bool wide_res = ir.op == IROp::LDR64X || ir.op == IROp::MOV64;
             out += pre + line + "\n" + post + spill_store(ra, ir.dst, wide_res);
         }
         out += "\n";

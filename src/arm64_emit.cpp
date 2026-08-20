@@ -168,7 +168,7 @@ std::string emit_arm64(const Insn& i, const std::string& label) {
         return line("ldr " + wr(i.rt) + ", [" + xr(i.ra) + ", #" + std::to_string(i.d) + "]");
     case Op::STW: return line("str " + wr(i.rs) + ", [" + xr(i.ra) + ", #" + std::to_string(i.d) + "]");
     case Op::LWZU: return line("ldr " + wr(i.rt) + ", [" + xr(i.ra) + ", #" + std::to_string(i.d) + "]!");
-    case Op::STWU: return line("str " + wr(i.rs) + ", [" + xr(i.ra) + ", #" + std::to_string(i.d) + "]!");
+    case Op::STWU: return line("sub x16, " + xr(i.ra) + ", #-" + std::to_string(i.d) + "\n  str " + wr(i.rs) + ", [x16]\n  mov " + xr(i.ra) + ", x16");
     case Op::LBZ: return line("ldrb " + wr(i.rt) + ", [" + xr(i.ra) + ", #" + std::to_string(i.d) + "]");
     case Op::LBZU: return line("ldrb " + wr(i.rt) + ", [" + xr(i.ra) + ", #" + std::to_string(i.d) + "]!");
     case Op::STB: return line("strb " + wr(i.rs) + ", [" + xr(i.ra) + ", #" + std::to_string(i.d) + "]");
@@ -216,7 +216,7 @@ std::string emit_arm64(const Insn& i, const std::string& label) {
     case Op::LHAX: return line("ldrsh " + wr(i.rt) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]");
     case Op::LHAUX: return line("ldrsh " + wr(i.rt) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]!");
     case Op::STWX: return line("str " + wr(i.rs) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]");
-    case Op::STWUX: return line("str " + wr(i.rs) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]!");
+    case Op::STWUX: return line("add x17, " + xr(i.ra) + ", " + xr(i.rb) + "\n  str " + wr(i.rs) + ", [x17]\n  mov " + xr(i.ra) + ", x17");
     case Op::STBX: return line("strb " + wr(i.rs) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]");
     case Op::STBUX: return line("strb " + wr(i.rs) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]!");
     case Op::STHX: return line("strh " + wr(i.rs) + ", [" + xr(i.ra) + ", " + xr(i.rb) + "]");

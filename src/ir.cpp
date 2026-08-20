@@ -198,6 +198,9 @@ IRFunc build_ir(const std::vector<Insn>& insns,
                               [](const Insn& a, uint64_t pc) { return static_cast<uint64_t>(a.pc) < pc; });
     }
 
+    int synth = 80; // synthetic temp vregs (GPR 0..31, CTR=64, LR=65 used; >=66 free)
+    auto next_temp = [&]() { return synth++; };
+
     std::set<uint64_t> targets;
     targets.insert(start);
     for (auto it = lo; it != hi; ++it) {
@@ -231,8 +234,46 @@ IRFunc build_ir(const std::vector<Insn>& insns,
                 lower_branch(in, b.insns);
             } else {
                 IRInsn ir = lower(in);
-                b.insns.push_back(ir);
-                append_mask(in, ir, b.insns);
+                if (in.op == Op::STWU || in.op == Op::STWUX) {
+                    // stwu/stwux rs, d(ra): mem[ra+d]=rs (old value), ra=ra+d
+                    IRInsn t = ir; t.op = IROp::MOV; t.dst = next_temp(); t.a = vg(in.rs);
+                    b.insns.push_back(t);
+                    IRInsn upd;
+                    upd.op = IROp::ADD; upd.dst = vg(in.ra); upd.a = vg(in.ra); upd.pc = in.pc;
+                    if (in.op == Op::STWU) upd.imm = in.d; else upd.b = vg(in.rb);
+                    b.insns.push_back(upd);
+                    IRInsn st;
+                    st.op = IROp::STR32; st.a = vg(in.ra); st.b = t.dst; st.imm = 0; st.pc = in.pc;
+                    b.insns.push_back(st);
+                } else if (in.op == Op::LWZU || in.op == Op::LWZUX) {
+                    // lwzu rt, d(ra): rt = mem[ra+d]; ra = ra+d
+                    IRInsn upd;
+                    upd.op = IROp::ADD; upd.dst = vg(in.ra); upd.a = vg(in.ra); upd.pc = in.pc;
+                    if (in.op == Op::LWZU) upd.imm = in.d; else upd.b = vg(in.rb);
+                    b.insns.push_back(upd);
+                    IRInsn ld;
+                    ld.op = IROp::LDR32; ld.dst = vg(in.rt); ld.a = vg(in.ra); ld.imm = 0; ld.pc = in.pc;
+                    b.insns.push_back(ld);
+                } else if (in.op == Op::STDU) {
+                    IRInsn t = ir; t.op = IROp::MOV64; t.dst = next_temp(); t.a = vg(in.rs);
+                    b.insns.push_back(t);
+                    IRInsn upd;
+                    upd.op = IROp::ADD; upd.dst = vg(in.ra); upd.a = vg(in.ra); upd.imm = in.d; upd.pc = in.pc;
+                    b.insns.push_back(upd);
+                    IRInsn st;
+                    st.op = IROp::STR64X; st.a = vg(in.ra); st.b = t.dst; st.imm = 0; st.pc = in.pc;
+                    b.insns.push_back(st);
+                } else if (in.op == Op::LDU) {
+                    IRInsn upd;
+                    upd.op = IROp::ADD; upd.dst = vg(in.ra); upd.a = vg(in.ra); upd.imm = in.d; upd.pc = in.pc;
+                    b.insns.push_back(upd);
+                    IRInsn ld;
+                    ld.op = IROp::LDR64X; ld.dst = vg(in.rt); ld.a = vg(in.ra); ld.imm = 0; ld.pc = in.pc;
+                    b.insns.push_back(ld);
+                } else {
+                    b.insns.push_back(ir);
+                    append_mask(in, ir, b.insns);
+                }
             }
             if (terminal(in)) break;
         }

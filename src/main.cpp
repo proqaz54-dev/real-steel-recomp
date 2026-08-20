@@ -164,11 +164,13 @@ int main(int argc, char** argv) {
                  (unsigned long long)img.entry);
     std::fprintf(out, ".text\n.align 2\n.globl entry\nentry:\n");
     for (const auto& in : insns) {
-        auto fit = functions.find(in.pc);
-        if (fit != functions.end())
+        bool is_fn = functions.find(in.pc) != functions.end();
+        bool is_tgt = labels.find(in.pc) != labels.end();
+        if (is_fn && is_tgt)
+            std::fprintf(out, "L_%llx: /* fn */  L_%llx:\n", (unsigned long long)in.pc, (unsigned long long)in.pc);
+        else if (is_fn)
             std::fprintf(out, "L_%llx: /* fn */\n", (unsigned long long)in.pc);
-        auto it = labels.find(in.pc);
-        if (it != labels.end())
+        else if (is_tgt)
             std::fprintf(out, "L_%llx:\n", (unsigned long long)in.pc);
         std::string target;
         if (in.op == rsr::Op::B || in.op == rsr::Op::BL) {
