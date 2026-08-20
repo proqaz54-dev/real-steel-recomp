@@ -1,5 +1,8 @@
 #include "ppc32_decode.h"
 #include "arm64_emit.h"
+#include "arm64_codegen.h"
+#include "ir.h"
+#include "regalloc.h"
 #include "xex.h"
 
 #include <cstdio>
@@ -129,6 +132,51 @@ int main(int argc, char** argv) {
     }
     std::fclose(out);
 
-    std::printf("wrote %s (%zu instructions)\n", o.output.c_str(), insns.size());
+    // IR + regalloc + codegen pass (whole-section function model: entry and
+    // all bl targets get a function whose extent ends at the next start).
+    std::vector<uint64_t> fns;
+    fns.push_back(entry_sec->vaddr);
+    for (const auto& kv : functions) fns.push_back(kv.first);
+    std::sort(fns.begin(), fns.end());
+    fns.erase(std::unique(fns.begin(), fns.end()), fns.end());
+    // Entry is at the top; only include addresses inside this section.
+    std::vector<uint64_t> starts;
+    for (uint64_t a : fns)
+        if (a >= entry_sec->vaddr && a < entry_sec->vaddr + size) starts.push_back(a);
+
+    auto in_range_check = [](uint64_t addr, void* ctx) -> bool {
+        auto* sections = static_cast<std::vector<std::pair<uint64_t, uint64_t>>*>(ctx);
+        for (const auto& s : *sections)
+            if (addr >= s.first && addr < s.second) return true;
+        return false;
+    };
+    std::vector<std::pair<uint64_t, uint64_t>> sections = {{entry_sec->vaddr, entry_sec->vaddr + size}};
+
+    FILE* ir_out = std::fopen((o.output + ".ir").c_str(), "w");
+    if (ir_out) {
+        std::fprintf(ir_out, "// IR + regalloc + ARM64 codegen for %s\n", o.input.c_str());
+        size_t total_blocks = 0, total_vregs = 0, spilled = 0, unsup = 0;
+        for (size_t i = 0; i < starts.size(); i++) {
+            uint64_t end = (i + 1 < starts.size()) ? starts[i + 1] : entry_sec->vaddr + size;
+            std::vector<uint64_t> callees;
+            rsr::IRFunc f = rsr::build_ir(insns, starts[i], end, callees);
+            rsr::RegAlloc ra = rsr::linear_scan(f, 16);
+            for (int s : ra.slot) if (s >= 0) spilled++;
+            for (int p : ra.phys) if (p >= 0) total_vregs++;
+            for (const auto& b : f.blocks) {
+                total_blocks++;
+                for (const auto& ir : b.insns) if (ir.op == rsr::IROp::UNSUP) unsup++;
+            }
+            std::string ir_text = rsr::ir_to_string(f);
+            std::string ra_text = rsr::regalloc_to_string(f, ra);
+            std::string asm_text = rsr::codegen_arm64(f, ra, in_range_check, &sections);
+            std::fprintf(ir_out, "%s%s%s\n", ir_text.c_str(), ra_text.c_str(), asm_text.c_str());
+        }
+        std::fclose(ir_out);
+        std::printf("IR pass: %zu functions, %zu blocks, %zu live vregs, %zu spills, %zu unsupported ir\n",
+                    starts.size(), total_blocks, total_vregs, spilled, unsup);
+    }
+    std::printf("wrote %s (%zu instructions); IR report -> %s.ir\n",
+                o.output.c_str(), insns.size(), o.output.c_str());
     return 0;
 }

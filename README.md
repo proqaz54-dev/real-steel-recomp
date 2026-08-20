@@ -37,8 +37,13 @@
       `src/main.cpp`
 - [x] CLI: `real-steel-recomp default.xex -o out.s`
 - [ ] CR-емulation точна (флаги в shadow-регістр; зараз best-effort from cmp)
-- [ ] Регістровий алокатор + ABI (Xenon ABI: r1=SP, r3..r10 аргументи)
-- [ ] Заглушки XAM/ядра (syscall), імпорти
+- [x] IR (3-адресний) + базові блоки + CTR/LR як віртуальні регістри
+      (v64=vCTR, v65=vLR), коректні bdnz/bdz послідовності (sub+cmp+branch):
+      `src/ir.{h,cpp}`
+- [x] Лінійний алокатор (live ranges, spill на [x19,#-8k]) +
+      ARM64-кодогенерація з IR: `src/regalloc.{h,cpp}`, `src/arm64_codegen.{h,cpp}`
+- [ ] Регістровий алокатор + ABI (Xenon ABI: r1=SP, r3..r10 аргументи, r0 scratch)
+- [ ] XAM/ядро (syscall-імпорти: r3 = syscall number, r4.. = args)
 - [ ] Графіка Xenos (D3D-подібний) -> Vulkan/GLES
 - [ ] Завантаження ігрових даних (dvd:/, content/)
 - [ ] Запуск + валідація проти Xenia
