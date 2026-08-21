@@ -4,7 +4,7 @@ typedef unsigned long long u64;
 extern void L_82088ab8(void);
 
 __attribute__((visibility("default")))
-int rs_native_entry(uint64_t a, uint64_t b) {
+int rs_native_entry(u64 a, u64 b) {
     (void)a;
     (void)b;
     L_82088ab8();
