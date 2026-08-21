@@ -138,7 +138,7 @@ IRInsn lower(const Insn& i) {
     case Op::B:     r.op = IROp::BR;      r.label = target_of(i); break;
     case Op::BL:    r.op = IROp::CALL;    r.label = target_of(i); break;
     case Op::MFLR:  r.op = IROp::MOV; r.dst = vg(i.rd); r.a = VLR; break;
-    case Op::MTLR:  r.op = IROp::MOV; r.dst = VLR; r.a = vg(i.rs); break;
+    case Op::MTLR:  r.op = IROp::MOV64; r.dst = VLR; r.a = vg(i.rs); break;
     case Op::MFCTR: r.op = IROp::MOV; r.dst = vg(i.rd); r.a = VCTR; break;
     case Op::MTCTR: r.op = IROp::MOV; r.dst = VCTR; r.a = vg(i.rs); break;
 
