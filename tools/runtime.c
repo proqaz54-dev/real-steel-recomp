@@ -1,4 +1,4 @@
-#include <stdint.h>
+typedef unsigned long long u64;
 
 /* Entry point of the recompiled title code (vaddr 0x82088ab8). */
 extern void L_82088ab8(void);
